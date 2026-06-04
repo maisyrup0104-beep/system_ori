@@ -14,13 +14,14 @@ import {
   getUnderservedNeeds, getValueProposition,
 } from '@/services/pmf'
 import { saveToQueue } from '@/services/contentOpportunities'
+import { getAllBlueprints } from '@/services/narrativeBlueprints'
 import {
   PERSONAL_METRICS, ORI_METRICS,
   findCriticalSignal, generateActionRecommendations,
   scoreColor, scoreLabel,
 } from '@/lib/stateEngine'
 import { generateOpportunities, analyzeEvents } from '@/lib/opportunityEngine'
-import { RefreshCwIcon, BookmarkPlusIcon, XIcon, ChevronRightIcon } from 'lucide-react'
+import { RefreshCwIcon, BookmarkPlusIcon, XIcon, ChevronRightIcon, MapPinIcon } from 'lucide-react'
 
 // ── State Summary ─────────────────────────────────────────────────────────────
 function StateSummaryRow({ personalSnap, oriSnap }) {
@@ -118,7 +119,7 @@ function SourceTypeBadge({ value }) {
 }
 
 // ── Opportunity Card ──────────────────────────────────────────────────────────
-function OpportunityCard({ opp, onSave, onDismiss, saved, saving }) {
+function OpportunityCard({ opp, onSave, onDismiss, saved, saving, firstBlueprint, onViewBlueprint }) {
   const template = opp.story_template
 
   return (
@@ -143,6 +144,11 @@ function OpportunityCard({ opp, onSave, onDismiss, saved, saving }) {
       <div>
         <p className="text-base font-semibold text-[#1a1a2e] leading-tight">{opp.primary_pillar}</p>
         <p className="text-sm text-[#e879a0] font-medium mt-0.5">{opp.narrative_stack}</p>
+        {firstBlueprint && (
+          <p className="text-[11px] text-[#9ca3af] mt-1">
+            Blueprint: <span className="text-[#6b7280] font-medium">{firstBlueprint.blueprint_name}</span>
+          </p>
+        )}
       </div>
 
       {/* Supporting Moments */}
@@ -216,7 +222,7 @@ function OpportunityCard({ opp, onSave, onDismiss, saved, saving }) {
       )}
 
       {/* Actions */}
-      <div className="flex items-center gap-2 pt-1 border-t border-[#f0e8ee]">
+      <div className="flex items-center gap-2 pt-1 border-t border-[#f0e8ee] flex-wrap">
         {saved ? (
           <span className="flex items-center gap-1.5 text-xs font-medium text-[#16a34a]">
             <span className="w-4 h-4 rounded-full bg-[#dcfce7] flex items-center justify-center text-[10px]">✓</span>
@@ -232,8 +238,140 @@ function OpportunityCard({ opp, onSave, onDismiss, saved, saving }) {
             {saving ? 'Saving…' : 'Save To Queue'}
           </button>
         )}
+        {firstBlueprint && (
+          <button
+            onClick={() => onViewBlueprint(opp)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-[#f0e8ee] text-[#6b7280] hover:border-[#fce4ed] hover:text-[#e879a0] hover:bg-[#fdf2f6] transition-colors ml-auto"
+          >
+            <MapPinIcon size={12} />
+            View Blueprint
+          </button>
+        )}
       </div>
     </div>
+  )
+}
+
+// ── Blueprint Panel ───────────────────────────────────────────────────────────
+
+function BlueprintPanel({ blueprints, idx, onIdxChange, onClose, opportunity, onSaveToQueue, saved, saving }) {
+  const bp = blueprints[idx]
+  if (!bp) return null
+
+  const pillSection = (label, items, bg, color) => (
+    items?.length > 0 && (
+      <div>
+        <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1.5">{label}</p>
+        <div className="flex flex-wrap gap-1">
+          {items.map((m, i) => (
+            <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px]"
+              style={{ backgroundColor: bg, color }}>
+              {m}
+            </span>
+          ))}
+        </div>
+      </div>
+    )
+  )
+
+  return (
+    <>
+      <div className="fixed inset-0 bg-black/10 z-30" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full w-[400px] bg-white border-l border-[#f0e8ee] z-40 flex flex-col shadow-xl overflow-hidden">
+        <div className="flex items-start justify-between px-5 py-4 border-b border-[#f0e8ee] shrink-0">
+          <div className="flex-1 min-w-0 pr-3">
+            <p className="text-[11px] text-[#9ca3af] mb-0.5">
+              {opportunity?.primary_pillar} · {opportunity?.narrative_stack}
+            </p>
+            <p className="text-base font-semibold text-[#1a1a2e] leading-tight">{bp.blueprint_name}</p>
+            <p className="text-xs text-[#e879a0] mt-0.5">Narrative Day Blueprint</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[#9ca3af] hover:text-[#1a1a2e] hover:bg-[#fdf2f6] transition-colors shrink-0">
+            <XIcon size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {/* 30/40/30 layout */}
+          <div className="grid grid-cols-3 gap-3 text-center text-[11px] text-[#9ca3af] mb-1">
+            {[['30%', 'Life'], ['40%', 'Main Event'], ['30%', 'Reflection']].map(([pct, label]) => (
+              <div key={label} className="bg-[#fdf9fb] border border-[#f0e8ee] rounded-lg py-2">
+                <p className="font-semibold text-[#1a1a2e]">{pct}</p>
+                <p>{label}</p>
+              </div>
+            ))}
+          </div>
+
+          {pillSection('Life Moments', bp.life_moments, '#fdf2f6', '#6b5b6e')}
+          {pillSection('Work Moments', bp.work_moments, '#dcfce7', '#16a34a')}
+          {pillSection('Reflection Moments', bp.reflection_moments, '#ede9fe', '#7c3aed')}
+
+          {bp.recommended_wardrobe?.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1.5">Wardrobe</p>
+              <div className="flex flex-wrap gap-1">
+                {bp.recommended_wardrobe.map((w, i) => (
+                  <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-[#fce4ed] text-[#e879a0]">{w}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {bp.recommended_locations?.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1.5">Locations</p>
+              <div className="flex flex-wrap gap-1">
+                {bp.recommended_locations.map((l, i) => (
+                  <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-[#dbeafe] text-[#1d4ed8]">{l}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {bp.recommended_props?.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1.5">Props</p>
+              <div className="flex flex-wrap gap-1">
+                {bp.recommended_props.map((p, i) => (
+                  <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] bg-[#fef9c3] text-[#ca8a04]">{p}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Cycle blueprints */}
+          {blueprints.length > 1 && (
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] text-[#9ca3af]">Blueprint {idx + 1} of {blueprints.length}</p>
+              <button
+                onClick={() => onIdxChange((idx - 1 + blueprints.length) % blueprints.length)}
+                className="px-2 py-1 text-xs border border-[#f0e8ee] rounded-lg hover:bg-[#fdf2f6] text-[#6b7280] transition-colors"
+              >← Prev</button>
+              <button
+                onClick={() => onIdxChange((idx + 1) % blueprints.length)}
+                className="px-2 py-1 text-xs border border-[#f0e8ee] rounded-lg hover:bg-[#fdf2f6] text-[#6b7280] transition-colors"
+              >Next →</button>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-[#f0e8ee] shrink-0">
+          {saved ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-[#16a34a]">
+              <span className="w-4 h-4 rounded-full bg-[#dcfce7] flex items-center justify-center text-[10px]">✓</span>
+              Saved to Queue
+            </span>
+          ) : (
+            <button
+              onClick={() => onSaveToQueue(opportunity, bp)}
+              disabled={saving}
+              className="w-full flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#e879a0] text-white hover:bg-[#d4659a] transition-colors disabled:opacity-50"
+            >
+              <BookmarkPlusIcon size={14} />
+              {saving ? 'Saving…' : 'Save To Queue with Blueprint'}
+            </button>
+          )}
+        </div>
+      </div>
+    </>
   )
 }
 
@@ -267,7 +405,7 @@ function EventAnalysisBanner({ analysis }) {
 }
 
 // ── Content Opportunities Section ─────────────────────────────────────────────
-function ContentOpportunitiesSection({ opportunities, dismissed, saved, savingId, onSave, onDismiss, onRegenerate }) {
+function ContentOpportunitiesSection({ opportunities, dismissed, saved, savingId, onSave, onDismiss, onRegenerate, blueprints, onViewBlueprint }) {
   const visible = opportunities.filter(o => !dismissed.has(o.id))
 
   return (
@@ -298,7 +436,10 @@ function ContentOpportunitiesSection({ opportunities, dismissed, saved, savingId
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4">
-          {visible.map((opp) => (
+          {visible.map((opp) => {
+            const pillarBps = (blueprints || []).filter(b => b.primary_pillar === opp.primary_pillar)
+            const firstBp   = pillarBps.find(b => b.narrative_stack === opp.narrative_stack) || pillarBps[0] || null
+            return (
             <OpportunityCard
               key={opp.id}
               opp={opp}
@@ -306,8 +447,11 @@ function ContentOpportunitiesSection({ opportunities, dismissed, saved, savingId
               onDismiss={onDismiss}
               saved={saved.has(opp.id)}
               saving={savingId === opp.id}
+              firstBlueprint={firstBp}
+              onViewBlueprint={onViewBlueprint}
             />
-          ))}
+            )
+          })}
         </div>
       )}
     </section>
@@ -327,6 +471,10 @@ export default function ContentOSPage() {
   const [dismissed,     setDismissed]     = useState(new Set())
   const [saved,         setSaved]         = useState(new Set())
   const [savingId,      setSavingId]      = useState(null)
+
+  // Blueprint state
+  const [blueprints,    setBlueprints]    = useState([])
+  const [bpPanel,       setBpPanel]       = useState({ open: false, blueprints: [], idx: 0, opp: null })
 
   useEffect(() => { load() }, [])
 
@@ -362,6 +510,9 @@ export default function ContentOSPage() {
       }
       setPmfData(pmf)
 
+      // Load blueprints
+      getAllBlueprints().then(bps => setBlueprints(bps || [])).catch(() => {})
+
       // Generate opportunities
       const personalSnap = ps?.[0] ?? null
       const oriSnap      = os?.[0] ?? null
@@ -383,16 +534,30 @@ export default function ContentOSPage() {
     setSaved(new Set())
   }
 
-  async function handleSave(opp) {
+  async function handleSave(opp, blueprint) {
     setSavingId(opp.id)
     try {
-      await saveToQueue(opp)
+      const pillarBps = blueprints.filter(b => b.primary_pillar === opp.primary_pillar)
+      const bp = blueprint
+        || pillarBps.find(b => b.narrative_stack === opp.narrative_stack)
+        || pillarBps[0]
+        || null
+      await saveToQueue({ ...opp, blueprint: bp })
       setSaved(prev => new Set([...prev, opp.id]))
+      if (bpPanel.open && bpPanel.opp?.id === opp.id) {
+        setBpPanel(prev => ({ ...prev, open: false }))
+      }
     } catch (err) {
       console.error('Failed to save to queue:', err)
     } finally {
       setSavingId(null)
     }
+  }
+
+  function handleViewBlueprint(opp) {
+    const pillarBps = blueprints.filter(b => b.primary_pillar === opp.primary_pillar)
+    if (!pillarBps.length) return
+    setBpPanel({ open: true, blueprints: pillarBps, idx: 0, opp })
   }
 
   function handleDismiss(id) {
@@ -409,6 +574,7 @@ export default function ContentOSPage() {
   if (loading) return <LoadingState message="Loading Content OS…" />
 
   return (
+    <>
     <PageContainer className="max-w-5xl">
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-[#1a1a2e] tracking-tight">Content OS</h1>
@@ -469,6 +635,8 @@ export default function ContentOSPage() {
         onSave={handleSave}
         onDismiss={handleDismiss}
         onRegenerate={handleRegenerate}
+        blueprints={blueprints}
+        onViewBlueprint={handleViewBlueprint}
       />
 
       {/* Evidence Analysis */}
@@ -482,5 +650,20 @@ export default function ContentOSPage() {
         <EvidencePanel events={events} />
       </section>
     </PageContainer>
+
+    {/* Blueprint Panel */}
+    {bpPanel.open && bpPanel.blueprints.length > 0 && (
+      <BlueprintPanel
+        blueprints={bpPanel.blueprints}
+        idx={bpPanel.idx}
+        onIdxChange={(i) => setBpPanel(prev => ({ ...prev, idx: i }))}
+        onClose={() => setBpPanel({ open: false, blueprints: [], idx: 0, opp: null })}
+        opportunity={bpPanel.opp}
+        onSaveToQueue={handleSave}
+        saved={saved.has(bpPanel.opp?.id)}
+        saving={savingId === bpPanel.opp?.id}
+      />
+    )}
+  </>
   )
 }

@@ -17,9 +17,16 @@ export async function saveToQueue(values) {
       source_type:              values.source_type,
       source_events:            values.source_events,
       source_pmf_assets:        values.source_pmf_assets,
-      source_concept_features:  values.source_concept_features || [],
-      reason:                   values.reason,
-      status:                   'Queued',
+      source_concept_features:      values.source_concept_features || [],
+      reason:                       values.reason,
+      status:                       'Queued',
+      blueprint_name:               values.blueprint?.blueprint_name || null,
+      blueprint_life_moments:       values.blueprint?.life_moments || [],
+      blueprint_work_moments:       values.blueprint?.work_moments || [],
+      blueprint_reflection_moments: values.blueprint?.reflection_moments || [],
+      blueprint_locations:          values.blueprint?.recommended_locations || [],
+      blueprint_props:              values.blueprint?.recommended_props || [],
+      blueprint_wardrobe:           values.blueprint?.recommended_wardrobe || [],
     })
     .select()
     .single()

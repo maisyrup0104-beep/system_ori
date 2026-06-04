@@ -11,6 +11,7 @@ import {
 } from '@/services/pmf'
 import { saveToQueue } from '@/services/contentOpportunities'
 import { saveForecastBatch } from '@/services/futureNarrative'
+import { getAllBlueprints } from '@/services/narrativeBlueprints'
 import {
   generateFutureNarrative,
   computeMetrics, computeAllocation, selectNarrativeArc,
@@ -156,7 +157,7 @@ function NarrativeArcDisplay({ arc }) {
 
 // ── Forecast card ─────────────────────────────────────────────────────────────
 
-function ForecastCard({ forecast, isPriority, onSaveToQueue, saved, saving }) {
+function ForecastCard({ forecast, isPriority, onSaveToQueue, saved, saving, blueprint }) {
   const s = getPillarStyle(forecast.pillar)
 
   const cardCls = isPriority
@@ -196,7 +197,33 @@ function ForecastCard({ forecast, isPriority, onSaveToQueue, saved, saving }) {
         <p className="text-xs mt-0.5" style={{ color: isPriority ? '#f9a8c3' : '#e879a0' }}>
           {forecast.narrative_stack}
         </p>
+        {blueprint && (
+          <p className={`text-[11px] mt-1 ${subCls}`}>
+            Blueprint: <span className="font-medium">{blueprint.blueprint_name}</span>
+          </p>
+        )}
       </div>
+
+      {/* Blueprint moments preview */}
+      {blueprint && (
+        <div className="space-y-1">
+          {[
+            { label: 'Life',       items: blueprint.life_moments?.slice(0, 2),       color: isPriority ? '#86efac44' : '#fdf2f6', text: isPriority ? '#86efac' : '#6b5b6e' },
+            { label: 'Work',       items: blueprint.work_moments?.slice(0, 2),        color: isPriority ? '#86efac22' : '#dcfce7', text: isPriority ? '#a7f3d0' : '#16a34a' },
+            { label: 'Reflection', items: blueprint.reflection_moments?.slice(0, 2), color: isPriority ? '#ede9fe22' : '#ede9fe', text: isPriority ? '#c4b5fd' : '#7c3aed' },
+          ].map(({ label, items, color, text }) => items?.length > 0 && (
+            <div key={label} className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: isPriority ? '#9ca3af' : '#c4b5c0' }}>{label}</span>
+              {items.map((m, i) => (
+                <span key={i} className="inline-flex items-center px-1.5 py-0 rounded text-[10px]"
+                  style={{ backgroundColor: color, color: text }}>
+                  {m}
+                </span>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Source state */}
       {forecast.source_state && (
@@ -415,6 +442,7 @@ export default function ContentCalendarPage() {
   const [oriSnaps,      setOriSnaps]      = useState([])
   const [events,        setEvents]        = useState([])
   const [pmfData,       setPmfData]       = useState(null)
+  const [blueprints,    setBlueprints]    = useState([])
 
   useEffect(() => { loadAll() }, [])
 
@@ -444,6 +472,9 @@ export default function ContentCalendarPage() {
         }
       } catch { /* PMF tables not yet migrated */ }
       setPmfData(pmf)
+
+      // Load blueprints (non-blocking)
+      getAllBlueprints().then(bps => setBlueprints(bps || [])).catch(() => {})
 
       // Generate immediately
       const personalSnap = ps?.[0] ?? null
@@ -548,6 +579,8 @@ export default function ContentCalendarPage() {
           <div className="grid grid-cols-2 gap-3">
             {priorityRecs.map((rec, i) => {
               const key = `${rec.pillar}::${rec.narrative_stack}`
+              const pillarBps = blueprints.filter(b => b.primary_pillar === rec.pillar)
+              const bp = pillarBps.find(b => b.narrative_stack === rec.narrative_stack) || pillarBps[0] || null
               return (
                 <ForecastCard
                   key={i}
@@ -556,6 +589,7 @@ export default function ContentCalendarPage() {
                   onSaveToQueue={handleSaveToQueue}
                   saved={savedIds.has(key)}
                   saving={savingKey === key}
+                  blueprint={bp}
                 />
               )
             })}
@@ -579,6 +613,8 @@ export default function ContentCalendarPage() {
           <div className="grid grid-cols-2 gap-3">
             {futureForecasts.map((fc, i) => {
               const key = `${fc.pillar}::${fc.narrative_stack}`
+              const pillarBps = blueprints.filter(b => b.primary_pillar === fc.pillar)
+              const bp = pillarBps.find(b => b.narrative_stack === fc.narrative_stack) || pillarBps[0] || null
               return (
                 <ForecastCard
                   key={i}
@@ -587,6 +623,7 @@ export default function ContentCalendarPage() {
                   onSaveToQueue={handleSaveToQueue}
                   saved={savedIds.has(key)}
                   saving={savingKey === key}
+                  blueprint={bp}
                 />
               )
             })}

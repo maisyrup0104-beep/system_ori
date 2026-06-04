@@ -408,6 +408,60 @@ function DetailPanel({ item, onClose, onStatusChange, onSaveNotes, onDelete, onA
             </div>
           )}
 
+          {/* Narrative Day Blueprint */}
+          {item.blueprint_name && (
+            <div className="bg-[#fdf9fb] border border-[#f0e8ee] rounded-xl p-3 space-y-3">
+              <div>
+                <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-0.5">Narrative Day Blueprint</p>
+                <p className="text-sm font-semibold text-[#1a1a2e]">{item.blueprint_name}</p>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center text-[10px] text-[#9ca3af]">
+                {[['30%', 'Life'], ['40%', 'Work'], ['30%', 'Reflection']].map(([pct, label]) => (
+                  <div key={label} className="bg-white border border-[#f0e8ee] rounded-lg py-1.5">
+                    <p className="font-semibold text-[#1a1a2e] text-xs">{pct}</p>
+                    <p>{label}</p>
+                  </div>
+                ))}
+              </div>
+              {item.blueprint_life_moments?.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Life Moments</p>
+                  <Pills items={item.blueprint_life_moments} color="#fdf2f6" textColor="#6b5b6e" />
+                </div>
+              )}
+              {item.blueprint_work_moments?.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Work Moments</p>
+                  <Pills items={item.blueprint_work_moments} color="#dcfce7" textColor="#16a34a" />
+                </div>
+              )}
+              {item.blueprint_reflection_moments?.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Reflection Moments</p>
+                  <Pills items={item.blueprint_reflection_moments} color="#ede9fe" textColor="#7c3aed" />
+                </div>
+              )}
+              {item.blueprint_wardrobe?.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Wardrobe</p>
+                  <Pills items={item.blueprint_wardrobe} color="#fce4ed" textColor="#e879a0" />
+                </div>
+              )}
+              {item.blueprint_locations?.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Locations</p>
+                  <Pills items={item.blueprint_locations} color="#dbeafe" textColor="#1d4ed8" />
+                </div>
+              )}
+              {item.blueprint_props?.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Props</p>
+                  <Pills items={item.blueprint_props} color="#fef9c3" textColor="#ca8a04" />
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Reason */}
           {item.reason && (
             <div>
