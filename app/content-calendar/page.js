@@ -1,396 +1,282 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import PageContainer from '@/components/shared/PageContainer'
 import LoadingState from '@/components/shared/LoadingState'
-import { getPersonalStates } from '@/services/personalStates'
-import { getOriStates } from '@/services/oriStates'
-import { getEvents } from '@/services/events'
-import {
-  getSegments, getRootProblems, getConceptFeatures, getValueProposition,
-} from '@/services/pmf'
-import { saveToQueue } from '@/services/contentOpportunities'
-import { saveForecastBatch } from '@/services/futureNarrative'
-import { getAllBlueprints } from '@/services/narrativeBlueprints'
-import {
-  generateFutureNarrative,
-  computeMetrics, computeAllocation, selectNarrativeArc,
-} from '@/lib/futureNarrativeEngine'
-import { scoreColor } from '@/lib/stateEngine'
-import { RefreshCwIcon, BookmarkPlusIcon, ChevronRightIcon } from 'lucide-react'
+import { getQueue, updateQueueItem, updateQueueStatus } from '@/services/contentOpportunities'
+import { ChevronLeftIcon, ChevronRightIcon, XIcon, CalendarIcon } from 'lucide-react'
 
-// ── Color maps ─────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-const PILLAR_COLORS = {
-  'Real Validation':      { bg: '#fce4ed', text: '#e879a0' },
-  'Building Journey':     { bg: '#dcfce7', text: '#16a34a' },
-  'PMF Discovery':        { bg: '#fef9c3', text: '#ca8a04' },
-  'Founder Insight':      { bg: '#ede9fe', text: '#7c3aed' },
-  'Market Evidence':      { bg: '#dbeafe', text: '#1d4ed8' },
-  'Industry Observation': { bg: '#f3f4f6', text: '#374151' },
-  'Concept Building':     { bg: '#fef3c7', text: '#b45309' },
-  'Authority':            { bg: '#fce4ed', text: '#be185d' },
-  'Trust':                { bg: '#dcfce7', text: '#065f46' },
+const DAYS_SHORT  = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June',
+                     'July', 'August', 'September', 'October', 'November', 'December']
+
+const PILLAR_ABBREV = {
+  'Real Validation':      { abbrev: 'RV',  bg: '#fce4ed', text: '#e879a0' },
+  'Building Journey':     { abbrev: 'BJ',  bg: '#dcfce7', text: '#16a34a' },
+  'PMF Discovery':        { abbrev: 'PMF', bg: '#fef9c3', text: '#ca8a04' },
+  'Founder Insight':      { abbrev: 'FI',  bg: '#ede9fe', text: '#7c3aed' },
+  'Market Evidence':      { abbrev: 'ME',  bg: '#dbeafe', text: '#1d4ed8' },
+  'Industry Observation': { abbrev: 'IO',  bg: '#f3f4f6', text: '#374151' },
+  'Concept Building':     { abbrev: 'CB',  bg: '#fef3c7', text: '#b45309' },
 }
 
-function getPillarStyle(pillar) {
-  return PILLAR_COLORS[pillar] || { bg: '#f3f4f6', text: '#6b7280' }
+const STATUS_COLORS = {
+  'Queued':          { bg: '#f3f4f6', text: '#6b7280',  dot: '#9ca3af' },
+  'Drafting':        { bg: '#fce4ed', text: '#e879a0',  dot: '#e879a0' },
+  'Ready To Record': { bg: '#ede9fe', text: '#7c3aed',  dot: '#7c3aed' },
+  'Recorded':        { bg: '#dbeafe', text: '#1d4ed8',  dot: '#1d4ed8' },
+  'Ready To Post':   { bg: '#dcfce7', text: '#16a34a',  dot: '#22c55e' },
+  'Posted':          { bg: '#bbf7d0', text: '#15803d',  dot: '#16a34a' },
+  'Archived':        { bg: '#e5e7eb', text: '#9ca3af',  dot: '#9ca3af' },
 }
 
-function PillarChip({ pillar, small }) {
-  const s = getPillarStyle(pillar)
+const STATUSES_ALL = ['Queued', 'Drafting', 'Ready To Record', 'Recorded', 'Ready To Post', 'Posted', 'Archived']
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function toDateStr(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function fmtDateLong(str) {
+  if (!str) return ''
+  const d = new Date(str + 'T00:00:00')
+  return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+function isToday(dateStr) {
+  return dateStr === toDateStr(new Date())
+}
+
+function getMonthGrid(year, month) {
+  const firstDay    = new Date(year, month, 1).getDay()
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const prevDays    = new Date(year, month, 0).getDate()
+  const cells       = []
+
+  for (let i = firstDay - 1; i >= 0; i--) {
+    const d = new Date(year, month - 1, prevDays - i)
+    cells.push({ date: d, dateStr: toDateStr(d), isCurrentMonth: false })
+  }
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = new Date(year, month, d)
+    cells.push({ date, dateStr: toDateStr(date), isCurrentMonth: true })
+  }
+  const remaining = 42 - cells.length
+  for (let i = 1; i <= remaining; i++) {
+    const d = new Date(year, month + 1, i)
+    cells.push({ date: d, dateStr: toDateStr(d), isCurrentMonth: false })
+  }
+  return cells
+}
+
+function getWeekDates(anchorDate) {
+  const d = new Date(anchorDate)
+  d.setDate(d.getDate() - d.getDay())
+  return Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(d)
+    day.setDate(d.getDate() + i)
+    return { date: day, dateStr: toDateStr(day) }
+  })
+}
+
+// ── Pillar badge abbreviation ─────────────────────────────────────────────────
+
+function PillarBadge({ pillar, small }) {
+  const s = PILLAR_ABBREV[pillar] || { abbrev: '?', bg: '#f3f4f6', text: '#6b7280' }
   return (
-    <span className={`inline-flex items-center rounded-full font-medium ${small ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'}`}
+    <span className={`inline-flex items-center font-semibold rounded ${small ? 'px-1 py-0 text-[9px]' : 'px-1.5 py-0.5 text-[10px]'}`}
       style={{ backgroundColor: s.bg, color: s.text }}>
-      {pillar}
+      {s.abbrev}
     </span>
   )
 }
 
-// ── Analytics banner ──────────────────────────────────────────────────────────
+// ── Calendar Cell ─────────────────────────────────────────────────────────────
 
-function AnalyticsBanner({ result }) {
-  const { weakestSignal, strongestSignal, allocation, arc, topPillar, topNarrative } = result
-  const wc = weakestSignal  ? scoreColor(weakestSignal.value)  : null
-  const sc = strongestSignal ? scoreColor(strongestSignal.value) : null
-
-  const cards = [
-    {
-      label: 'Weakest Signal',
-      value: weakestSignal ? `${weakestSignal.label} ${weakestSignal.value}/10` : '—',
-      sub:   weakestSignal ? 'Needs most content attention' : null,
-      style: wc ? { color: wc.text } : {},
-    },
-    {
-      label: 'Strongest Signal',
-      value: strongestSignal ? `${strongestSignal.label} ${strongestSignal.value}/10` : '—',
-      sub:   strongestSignal ? 'Can be maintained' : null,
-      style: sc ? { color: sc.text } : {},
-    },
-    {
-      label: 'Top Allocation',
-      value: allocation[0] ? `${allocation[0].pillar} ${allocation[0].pct}%` : '—',
-      sub:   'Highest content weight',
-      style: { color: '#e879a0' },
-    },
-    {
-      label: 'Narrative Arc',
-      value: arc.name,
-      sub:   arc.phases.join(' → '),
-      style: { color: '#1a1a2e' },
-    },
-    {
-      label: 'Top Forecasted Pillar',
-      value: topPillar || '—',
-      sub:   'Most forecasted content',
-      style: { color: '#7c3aed' },
-    },
-    {
-      label: 'Top Narrative Stack',
-      value: topNarrative || '—',
-      sub:   'Most forecasted narrative',
-      style: { color: '#1d4ed8' },
-    },
-  ]
+function CalendarCell({ cell, items, onSelect, onDrop, onDragStart }) {
+  const cellItems  = items.filter(i => i.scheduled_date === cell.dateStr)
+  const displayed  = cellItems.slice(0, 3)
+  const extra      = cellItems.length - 3
+  const today      = isToday(cell.dateStr)
 
   return (
-    <div className="grid grid-cols-3 gap-3 mb-6">
-      {cards.map(c => (
-        <div key={c.label} className="bg-white rounded-xl border border-[#f0e8ee] p-4">
-          <p className="text-[11px] text-[#9ca3af] mb-1">{c.label}</p>
-          <p className="text-sm font-semibold truncate" style={c.style}>{c.value}</p>
-          {c.sub && <p className="text-[11px] text-[#c4b5c0] mt-0.5 truncate">{c.sub}</p>}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── Content Allocation bars ───────────────────────────────────────────────────
-
-function AllocationSection({ allocation }) {
-  return (
-    <div className="bg-white rounded-xl border border-[#f0e8ee] p-5 mb-6">
-      <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-4">Content Allocation</p>
-      <div className="space-y-3">
-        {allocation.map(a => {
-          const s = getPillarStyle(a.pillar)
-          return (
-            <div key={a.pillar}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-sm font-medium text-[#1a1a2e]">{a.pillar}</span>
-                <span className="text-sm font-semibold" style={{ color: s.text }}>{a.pct}%</span>
-              </div>
-              <div className="h-2 bg-[#f3f4f6] rounded-full overflow-hidden">
-                <div className="h-full rounded-full transition-all" style={{ width: `${a.pct}%`, backgroundColor: s.text + 'aa' }} />
-              </div>
-              <p className="text-[11px] text-[#9ca3af] mt-0.5">{a.reason}</p>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
-// ── Narrative Arc ─────────────────────────────────────────────────────────────
-
-function NarrativeArcDisplay({ arc }) {
-  return (
-    <div className="bg-white rounded-xl border border-[#f0e8ee] p-5 mb-6">
-      <div className="flex items-start justify-between mb-3">
-        <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide">Narrative Arc</p>
-        <span className="text-[11px] text-[#e879a0] font-medium">{arc.name}</span>
-      </div>
-      <div className="flex items-center gap-2 flex-wrap mb-3">
-        {arc.phases.map((phase, i) => (
-          <span key={phase} className="flex items-center gap-2">
-            <PillarChip pillar={phase} />
-            {i < arc.phases.length - 1 && <ChevronRightIcon size={14} className="text-[#d1c4cb] shrink-0" />}
-          </span>
-        ))}
-      </div>
-      <p className="text-xs text-[#6b7280] italic leading-relaxed">{arc.reason}</p>
-    </div>
-  )
-}
-
-// ── Forecast card ─────────────────────────────────────────────────────────────
-
-function ForecastCard({ forecast, isPriority, onSaveToQueue, saved, saving, blueprint }) {
-  const s = getPillarStyle(forecast.pillar)
-
-  const cardCls = isPriority
-    ? 'bg-[#1a1a2e] text-white border-2 border-[#86efac] rounded-xl p-4 flex flex-col gap-3'
-    : 'bg-white border border-[#fce4ed] rounded-xl p-4 flex flex-col gap-3 opacity-90 hover:opacity-100 transition-opacity'
-
-  const labelCls   = isPriority ? 'text-[#86efac]' : 'text-[#9ca3af]'
-  const textCls    = isPriority ? 'text-white'      : 'text-[#1a1a2e]'
-  const subCls     = isPriority ? 'text-[#9ca3af]'  : 'text-[#6b7280]'
-  const reasonCls  = isPriority ? 'text-[#c4b5c0]'  : 'text-[#6b7280]'
-  const pillBg     = isPriority ? 'rgba(134,239,172,0.15)' : s.bg
-  const pillText   = isPriority ? '#86efac'          : s.text
-
-  return (
-    <div className={cardCls}>
-      {/* Badge row */}
-      <div className="flex items-center gap-2 flex-wrap">
-        {isPriority && (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[#86efac]/20 text-[#86efac]">
-            Priority
-          </span>
-        )}
-        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium"
-          style={{ backgroundColor: pillBg, color: pillText }}>
-          {forecast.pillar}
-        </span>
-        {forecast.allocation_pct != null && (
-          <span className={`text-[11px] font-medium ml-auto ${labelCls}`}>
-            {forecast.allocation_pct}%
-          </span>
-        )}
-      </div>
-
-      {/* Pillar + Narrative */}
-      <div>
-        <p className={`text-sm font-semibold ${textCls}`}>{forecast.pillar}</p>
-        <p className="text-xs mt-0.5" style={{ color: isPriority ? '#f9a8c3' : '#e879a0' }}>
-          {forecast.narrative_stack}
-        </p>
-        {blueprint && (
-          <p className={`text-[11px] mt-1 ${subCls}`}>
-            Blueprint: <span className="font-medium">{blueprint.blueprint_name}</span>
-          </p>
-        )}
-      </div>
-
-      {/* Blueprint moments preview */}
-      {blueprint && (
-        <div className="space-y-1">
-          {[
-            { label: 'Life',       items: blueprint.life_moments?.slice(0, 2),       color: isPriority ? '#86efac44' : '#fdf2f6', text: isPriority ? '#86efac' : '#6b5b6e' },
-            { label: 'Work',       items: blueprint.work_moments?.slice(0, 2),        color: isPriority ? '#86efac22' : '#dcfce7', text: isPriority ? '#a7f3d0' : '#16a34a' },
-            { label: 'Reflection', items: blueprint.reflection_moments?.slice(0, 2), color: isPriority ? '#ede9fe22' : '#ede9fe', text: isPriority ? '#c4b5fd' : '#7c3aed' },
-          ].map(({ label, items, color, text }) => items?.length > 0 && (
-            <div key={label} className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: isPriority ? '#9ca3af' : '#c4b5c0' }}>{label}</span>
-              {items.map((m, i) => (
-                <span key={i} className="inline-flex items-center px-1.5 py-0 rounded text-[10px]"
-                  style={{ backgroundColor: color, color: text }}>
-                  {m}
-                </span>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Source state */}
-      {forecast.source_state && (
-        <div>
-          <p className={`text-[11px] font-semibold uppercase tracking-wide mb-0.5 ${labelCls}`}>Source State</p>
-          <p className={`text-xs ${subCls}`}>
-            {forecast.source_state.metric} — {forecast.source_state.value}/10
-          </p>
-        </div>
-      )}
-
-      {/* Source PMF */}
-      {forecast.source_pmf_asset && (
-        <div>
-          <p className={`text-[11px] font-semibold uppercase tracking-wide mb-0.5 ${labelCls}`}>Source PMF</p>
-          <p className={`text-xs ${subCls}`}>{forecast.source_pmf_asset}</p>
-        </div>
-      )}
-
-      {/* Source Events */}
-      {forecast.source_events?.length > 0 && (
-        <div>
-          <p className={`text-[11px] font-semibold uppercase tracking-wide mb-1 ${labelCls}`}>Source Events</p>
-          <div className="flex flex-wrap gap-1">
-            {forecast.source_events.map((ev, i) => (
-              <span key={i} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px]"
-                style={{ backgroundColor: isPriority ? 'rgba(254,249,195,0.1)' : '#fef9c3', color: isPriority ? '#fde68a' : '#ca8a04' }}>
-                {ev}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Reason */}
-      {forecast.reason && (
-        <p className={`text-[11px] italic leading-relaxed ${reasonCls}`}>{forecast.reason}</p>
-      )}
-
-      {/* Save to Queue */}
-      <div className="pt-1 border-t" style={{ borderColor: isPriority ? 'rgba(255,255,255,0.1)' : '#f0e8ee' }}>
-        {saved ? (
-          <span className="text-[11px] font-medium text-[#16a34a]">✓ Saved to Queue</span>
-        ) : (
-          <button
-            onClick={() => onSaveToQueue(forecast)}
-            disabled={saving}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 ${
-              isPriority
-                ? 'bg-[#86efac]/20 text-[#86efac] hover:bg-[#86efac]/30'
-                : 'bg-[#fce4ed] text-[#e879a0] hover:bg-[#f9a8c3]/30'
-            }`}
+    <div
+      className={`min-h-[90px] p-1.5 border-b border-r border-[#f0e8ee] cursor-pointer transition-colors select-none ${
+        cell.isCurrentMonth ? 'bg-white hover:bg-[#fdf9fb]' : 'bg-[#fafafa]'
+      } ${today ? 'ring-inset ring-2 ring-[#e879a0]/60' : ''}`}
+      onClick={() => onSelect(cell)}
+      onDragOver={e => e.preventDefault()}
+      onDrop={e => onDrop(e, cell.dateStr)}
+    >
+      <p className={`text-xs font-semibold mb-1 ${
+        today ? 'w-5 h-5 rounded-full bg-[#e879a0] text-white flex items-center justify-center text-[10px]'
+              : cell.isCurrentMonth ? 'text-[#1a1a2e]' : 'text-[#d1c4cb]'
+      }`}>
+        {cell.date.getDate()}
+      </p>
+      <div className="flex flex-wrap gap-0.5">
+        {displayed.map(item => (
+          <span
+            key={item.id}
+            draggable
+            onDragStart={e => onDragStart(e, item.id)}
+            onClick={e => e.stopPropagation()}
+            title={`${item.primary_pillar} — ${item.narrative_stack || ''} (${item.status})`}
           >
-            <BookmarkPlusIcon size={12} />
-            {saving ? 'Saving…' : 'Save To Queue'}
-          </button>
-        )}
+            <PillarBadge pillar={item.primary_pillar} small />
+          </span>
+        ))}
+        {extra > 0 && <span className="text-[9px] text-[#9ca3af] leading-none mt-0.5">+{extra}</span>}
       </div>
     </div>
   )
 }
 
-// ── Calendar ──────────────────────────────────────────────────────────────────
+// ── Month View ────────────────────────────────────────────────────────────────
 
-function CalendarView({ schedule, view }) {
-  const today = new Date()
+function MonthView({ year, month, items, onSelectDate, dragging, setDragging, onMoveToDate }) {
+  const cells = useMemo(() => getMonthGrid(year, month), [year, month])
 
-  if (view === 'month') {
-    // Current month only — group by week
-    const currentMonth = today.getMonth()
-    const currentYear  = today.getFullYear()
-    const monthWeeks   = schedule.filter(w => w.month === currentMonth && w.year === currentYear)
-    // Also include next 2 months
-    const next1Month   = (currentMonth + 1) % 12
-    const next1Year    = currentMonth === 11 ? currentYear + 1 : currentYear
-    const next2Month   = (currentMonth + 2) % 12
-    const next2Year    = currentMonth >= 10 ? currentYear + 1 : currentYear
+  function handleDragStart(e, itemId) {
+    setDragging(itemId)
+    e.dataTransfer.setData('text/plain', itemId)
+    e.dataTransfer.effectAllowed = 'move'
+  }
 
-    const months = [
-      { label: schedule.find(w => w.month === currentMonth && w.year === currentYear)?.monthYear || '', weeks: monthWeeks },
-      { label: schedule.find(w => w.month === next1Month && w.year === next1Year)?.monthYear || '', weeks: schedule.filter(w => w.month === next1Month && w.year === next1Year) },
-      { label: schedule.find(w => w.month === next2Month && w.year === next2Year)?.monthYear || '', weeks: schedule.filter(w => w.month === next2Month && w.year === next2Year) },
-    ].filter(m => m.weeks.length > 0)
+  function handleDrop(e, dateStr) {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (id) onMoveToDate(id, dateStr)
+    setDragging(null)
+  }
 
-    return (
-      <div className="space-y-6">
-        {months.map(({ label, weeks }) => (
-          <div key={label}>
-            <p className="text-sm font-semibold text-[#1a1a2e] mb-3">{label}</p>
-            <div className="space-y-2">
-              {weeks.map(week => <CalendarWeekRow key={week.weekLabel} week={week} />)}
-            </div>
+  return (
+    <div className="border-l border-t border-[#f0e8ee] rounded-xl overflow-hidden">
+      {/* Day headers */}
+      <div className="grid grid-cols-7 bg-[#fdf9fb] border-b border-[#f0e8ee]">
+        {DAYS_SHORT.map(d => (
+          <div key={d} className="px-2 py-2 text-center text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide">
+            {d}
           </div>
         ))}
       </div>
-    )
+      {/* Cells grid */}
+      <div className="grid grid-cols-7">
+        {cells.map((cell, i) => (
+          <CalendarCell
+            key={i}
+            cell={cell}
+            items={items}
+            onSelect={() => onSelectDate(cell.dateStr)}
+            onDrop={handleDrop}
+            onDragStart={handleDragStart}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Week View ─────────────────────────────────────────────────────────────────
+
+function WeekView({ anchorDate, items, onSelectDate, onMoveToDate, setDragging }) {
+  const days = useMemo(() => getWeekDates(anchorDate), [anchorDate])
+
+  function handleDragStart(e, itemId) {
+    setDragging(itemId)
+    e.dataTransfer.setData('text/plain', itemId)
   }
 
-  if (view === 'quarter') {
-    // Q2, Q3, Q4 of 2026
-    const quarters = [
-      { label: 'Q2 2026', months: [3, 4, 5] },
-      { label: 'Q3 2026', months: [6, 7, 8] },
-      { label: 'Q4 2026', months: [9, 10, 11] },
-    ]
+  function handleDrop(e, dateStr) {
+    e.preventDefault()
+    const id = e.dataTransfer.getData('text/plain')
+    if (id) onMoveToDate(id, dateStr)
+    setDragging(null)
+  }
 
-    return (
-      <div className="space-y-8">
-        {quarters.map(({ label, months }) => {
-          const qWeeks = schedule.filter(w => months.includes(w.month) && w.year === 2026)
-          if (!qWeeks.length) return null
-
-          const byMonth = {}
-          for (const w of qWeeks) {
-            if (!byMonth[w.monthYear]) byMonth[w.monthYear] = []
-            byMonth[w.monthYear].push(w)
-          }
-
+  return (
+    <div className="border border-[#f0e8ee] rounded-xl overflow-hidden">
+      <div className="grid grid-cols-7">
+        {days.map(({ date, dateStr }) => {
+          const dayItems = items.filter(i => i.scheduled_date === dateStr)
+          const today    = isToday(dateStr)
           return (
-            <div key={label}>
-              <p className="text-sm font-semibold text-[#1a1a2e] mb-3">{label}</p>
-              <div className="grid grid-cols-3 gap-4">
-                {Object.entries(byMonth).map(([month, mWeeks]) => (
-                  <div key={month} className="bg-white rounded-xl border border-[#f0e8ee] p-3">
-                    <p className="text-xs font-semibold text-[#9ca3af] mb-2">{month}</p>
-                    <div className="space-y-1.5">
-                      {mWeeks.map(week => <CalendarMiniRow key={week.weekLabel} week={week} />)}
+            <div key={dateStr} className="border-r border-[#f0e8ee] last:border-r-0"
+              onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, dateStr)}>
+              <div
+                className={`px-3 py-2 border-b border-[#f0e8ee] cursor-pointer hover:bg-[#fdf9fb] transition-colors ${today ? 'bg-[#fdf2f6]' : 'bg-[#fdf9fb]'}`}
+                onClick={() => onSelectDate(dateStr)}
+              >
+                <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide">{DAYS_SHORT[date.getDay()]}</p>
+                <p className={`text-lg font-semibold mt-0.5 ${today ? 'text-[#e879a0]' : 'text-[#1a1a2e]'}`}>{date.getDate()}</p>
+              </div>
+              <div className="p-2 min-h-[120px] space-y-1">
+                {dayItems.map(item => {
+                  const s = STATUS_COLORS[item.status] || STATUS_COLORS.Queued
+                  return (
+                    <div key={item.id} draggable onDragStart={e => handleDragStart(e, item.id)}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-grab active:cursor-grabbing"
+                      style={{ backgroundColor: s.bg }}>
+                      <PillarBadge pillar={item.primary_pillar} small />
+                      <span className="text-[10px] font-medium truncate" style={{ color: s.text }}>
+                        {item.narrative_stack || item.primary_pillar}
+                      </span>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
           )
         })}
       </div>
-    )
-  }
+    </div>
+  )
+}
 
-  // Year view — show months as columns
-  const byMonth = {}
-  for (const w of schedule.filter(w => w.year === 2026)) {
-    if (!byMonth[w.monthYear]) byMonth[w.monthYear] = []
-    byMonth[w.monthYear].push(w)
-  }
+// ── Year View ─────────────────────────────────────────────────────────────────
 
+function YearView({ year, items, onNavigateToMonth }) {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {Object.entries(byMonth).map(([month, mWeeks]) => {
-        const pillarCounts = {}
-        for (const w of mWeeks) {
-          pillarCounts[w.pillar] = (pillarCounts[w.pillar] || 0) + 1
-        }
-        const topPillar = Object.entries(pillarCounts).sort((a, b) => b[1] - a[1])[0]
-        const s = getPillarStyle(topPillar?.[0] || '')
-
+    <div className="grid grid-cols-3 gap-4">
+      {Array.from({ length: 12 }, (_, m) => {
+        const cells = getMonthGrid(year, m)
+        const monthItems = items.filter(i => {
+          if (!i.scheduled_date) return false
+          const d = new Date(i.scheduled_date + 'T00:00:00')
+          return d.getFullYear() === year && d.getMonth() === m
+        })
         return (
-          <div key={month} className="bg-white rounded-xl border border-[#f0e8ee] p-4">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-[#1a1a2e]">{month}</p>
-              <span className="text-[11px] font-medium px-2 py-0.5 rounded-full"
-                style={{ backgroundColor: s.bg, color: s.text }}>
-                {topPillar?.[0]}
-              </span>
+          <div key={m} className="bg-white rounded-xl border border-[#f0e8ee] p-3 cursor-pointer hover:border-[#fce4ed] transition-colors"
+            onClick={() => onNavigateToMonth(year, m)}>
+            <p className="text-xs font-semibold text-[#1a1a2e] mb-2">{MONTHS_LONG[m]}</p>
+            {/* Mini grid */}
+            <div className="grid grid-cols-7 gap-px mb-1">
+              {['S','M','T','W','T','F','S'].map((d, i) => (
+                <div key={i} className="text-center text-[9px] text-[#c4b5c0]">{d}</div>
+              ))}
+              {cells.map((cell, i) => {
+                const hasItems = monthItems.some(item => item.scheduled_date === cell.dateStr)
+                return (
+                  <div key={i} className={`w-full aspect-square rounded-sm flex items-center justify-center ${
+                    !cell.isCurrentMonth ? 'opacity-30' : ''
+                  } ${isToday(cell.dateStr) ? 'ring-1 ring-[#e879a0]' : ''}`}>
+                    {hasItems ? (
+                      <div className="w-1.5 h-1.5 rounded-full bg-[#e879a0]" />
+                    ) : (
+                      <span className="text-[8px] text-[#c4b5c0]">{cell.date.getDate()}</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
-            <div className="space-y-1">
-              {mWeeks.slice(0, 4).map(w => <CalendarMiniRow key={w.weekLabel} week={w} />)}
-            </div>
+            {monthItems.length > 0 && (
+              <p className="text-[10px] text-[#9ca3af] mt-1">{monthItems.length} item{monthItems.length !== 1 ? 's' : ''} scheduled</p>
+            )}
           </div>
         )
       })}
@@ -398,31 +284,148 @@ function CalendarView({ schedule, view }) {
   )
 }
 
-function CalendarWeekRow({ week }) {
-  const s = getPillarStyle(week.pillar)
+// ── Date Detail Panel ─────────────────────────────────────────────────────────
+
+function DateDetailPanel({ dateStr, items, onClose, onStatusChange, onUnschedule, onSaveNotes, updatingId }) {
+  const dayItems = items.filter(i => i.scheduled_date === dateStr)
+  const [notesMap,    setNotesMap]    = useState({})
+  const [changedIds,  setChangedIds]  = useState(new Set())
+  const [savingNotes, setSavingNotes] = useState(null)
+
+  function handleNoteChange(id, val) {
+    setNotesMap(prev => ({ ...prev, [id]: val }))
+    setChangedIds(prev => new Set([...prev, id]))
+  }
+
+  async function handleSaveNote(id) {
+    setSavingNotes(id)
+    try {
+      await onSaveNotes(id, notesMap[id] ?? '')
+      setChangedIds(prev => { const s = new Set(prev); s.delete(id); return s })
+    } finally {
+      setSavingNotes(null)
+    }
+  }
+
   return (
-    <div className={`flex items-center gap-3 px-3 py-2.5 rounded-lg border ${week.isCurrentWeek ? 'border-[#e879a0] bg-[#fdf2f6]' : 'border-[#f0e8ee] bg-white'}`}>
-      <div className="w-28 shrink-0">
-        <p className="text-[11px] text-[#9ca3af]">{week.weekLabel}</p>
-        {week.isCurrentWeek && <p className="text-[10px] text-[#e879a0] font-semibold">This week</p>}
+    <>
+      <div className="fixed inset-0 bg-black/10 z-30" onClick={onClose} />
+      <div className="fixed right-0 top-0 h-full w-[400px] bg-white border-l border-[#f0e8ee] z-40 flex flex-col shadow-xl overflow-hidden">
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 py-4 border-b border-[#f0e8ee] shrink-0">
+          <div>
+            <p className="text-[11px] text-[#9ca3af] mb-0.5">Scheduled Content</p>
+            <p className="text-sm font-semibold text-[#1a1a2e]">{fmtDateLong(dateStr)}</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg text-[#9ca3af] hover:text-[#1a1a2e] hover:bg-[#fdf2f6] transition-colors">
+            <XIcon size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+          {dayItems.length === 0 ? (
+            <div className="text-center py-8">
+              <CalendarIcon size={24} className="text-[#f0e8ee] mx-auto mb-2" />
+              <p className="text-sm text-[#c4b5c0]">Nothing scheduled for this day.</p>
+              <p className="text-xs text-[#c4b5c0] mt-1">Drag items from other dates, or schedule from Queue.</p>
+            </div>
+          ) : (
+            dayItems.map(item => {
+              const s   = PILLAR_ABBREV[item.primary_pillar] || { abbrev: '?', bg: '#f3f4f6', text: '#6b7280' }
+              const st  = STATUS_COLORS[item.status] || STATUS_COLORS.Queued
+              const noteVal = notesMap[item.id] ?? item.notes ?? ''
+
+              return (
+                <div key={item.id} className="bg-[#fdf9fb] border border-[#f0e8ee] rounded-xl p-4 space-y-3">
+                  {/* Header */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                        style={{ backgroundColor: s.bg, color: s.text }}>{s.abbrev}</span>
+                      <span className="text-sm font-semibold text-[#1a1a2e]">{item.primary_pillar}</span>
+                    </div>
+                    <button onClick={() => onUnschedule(item.id)}
+                      className="text-[11px] text-[#9ca3af] hover:text-red-500 transition-colors whitespace-nowrap shrink-0">
+                      Unschedule
+                    </button>
+                  </div>
+
+                  {/* Narrative + Blueprint */}
+                  {item.narrative_stack && <p className="text-xs text-[#e879a0] font-medium">{item.narrative_stack}</p>}
+                  {item.blueprint_name  && <p className="text-[11px] text-[#9ca3af]">Blueprint: <span className="font-medium text-[#6b7280]">{item.blueprint_name}</span></p>}
+
+                  {/* Blueprint moments */}
+                  {(item.blueprint_life_moments?.length > 0 || item.blueprint_work_moments?.length > 0 || item.blueprint_reflection_moments?.length > 0) && (
+                    <div className="space-y-1.5">
+                      {[
+                        { label: 'Life',       items: item.blueprint_life_moments,       bg: '#fdf2f6', color: '#6b5b6e' },
+                        { label: 'Work',       items: item.blueprint_work_moments,        bg: '#dcfce7', color: '#16a34a' },
+                        { label: 'Reflection', items: item.blueprint_reflection_moments, bg: '#ede9fe', color: '#7c3aed' },
+                      ].map(({ label, items: mItems, bg, color }) => mItems?.length > 0 && (
+                        <div key={label} className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#c4b5c0]">{label}</span>
+                          {mItems.map((m, i) => <span key={i} className="inline-flex items-center px-1.5 py-0 rounded text-[10px]" style={{ backgroundColor: bg, color }}>{m}</span>)}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Status */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Status</p>
+                    <div className="flex flex-wrap gap-1">
+                      {STATUSES_ALL.map(s => (
+                        <button key={s} disabled={updatingId === item.id}
+                          onClick={() => onStatusChange(item.id, s)}
+                          className="px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors border"
+                          style={item.status === s
+                            ? { backgroundColor: STATUS_COLORS[s]?.bg, color: STATUS_COLORS[s]?.text, borderColor: STATUS_COLORS[s]?.text + '55' }
+                            : { backgroundColor: 'white', color: '#9ca3af', borderColor: '#f0e8ee' }
+                          }>
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Notes */}
+                  <div>
+                    <p className="text-[10px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1">Notes</p>
+                    <textarea
+                      className="w-full border border-[#f0e8ee] rounded-lg px-2.5 py-1.5 text-xs text-[#1a1a2e] bg-white focus:outline-none focus:ring-2 focus:ring-[#f9a8c3] resize-none placeholder-[#c4b5c0]"
+                      rows={2}
+                      placeholder="Recording notes, ideas…"
+                      value={noteVal}
+                      onChange={e => handleNoteChange(item.id, e.target.value)}
+                    />
+                    {changedIds.has(item.id) && (
+                      <button onClick={() => handleSaveNote(item.id)} disabled={savingNotes === item.id}
+                        className="mt-1 px-2.5 py-1 text-[11px] font-medium bg-[#e879a0] text-white rounded-lg hover:bg-[#d4659a] transition-colors disabled:opacity-50">
+                        {savingNotes === item.id ? 'Saving…' : 'Save'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-2 flex-1">
-        <PillarChip pillar={week.pillar} small />
-        <span className="text-xs text-[#9ca3af]">·</span>
-        <span className="text-xs text-[#6b7280]">{week.narrative_stack}</span>
-      </div>
-      <span className="text-[11px] text-[#9ca3af]">{week.allocation_pct}%</span>
-    </div>
+    </>
   )
 }
 
-function CalendarMiniRow({ week }) {
-  const s = getPillarStyle(week.pillar)
+// ── Legend ────────────────────────────────────────────────────────────────────
+
+function Legend() {
   return (
-    <div className={`flex items-center gap-2 px-2 py-1.5 rounded-lg ${week.isCurrentWeek ? 'bg-[#fdf2f6]' : ''}`}>
-      <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: s.text }} />
-      <p className="text-[11px] text-[#1a1a2e] truncate">{week.pillar}</p>
-      <p className="text-[11px] text-[#9ca3af] shrink-0 ml-auto">{week.weekLabel.split(' – ')[0]}</p>
+    <div className="flex flex-wrap items-center gap-3 mb-4 px-1">
+      {Object.entries(PILLAR_ABBREV).map(([pillar, s]) => (
+        <div key={pillar} className="flex items-center gap-1.5">
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold" style={{ backgroundColor: s.bg, color: s.text }}>{s.abbrev}</span>
+          <span className="text-[11px] text-[#9ca3af]">{pillar}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -430,229 +433,200 @@ function CalendarMiniRow({ week }) {
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function ContentCalendarPage() {
+  const today = new Date()
+
+  const [items,        setItems]        = useState([])
   const [loading,      setLoading]      = useState(true)
-  const [generating,   setGenerating]   = useState(false)
-  const [result,       setResult]       = useState(null)
-  const [calView,      setCalView]      = useState('month')
-  const [savedIds,     setSavedIds]     = useState(new Set())
-  const [savingKey,    setSavingKey]    = useState(null)
+  const [currentDate,  setCurrentDate]  = useState(today)
+  const [view,         setView]         = useState('month')
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [dragging,     setDragging]     = useState(null)
+  const [updatingId,   setUpdatingId]   = useState(null)
 
-  // Raw data for engine
-  const [personalSnaps, setPersonalSnaps] = useState([])
-  const [oriSnaps,      setOriSnaps]      = useState([])
-  const [events,        setEvents]        = useState([])
-  const [pmfData,       setPmfData]       = useState(null)
-  const [blueprints,    setBlueprints]    = useState([])
+  useEffect(() => { load() }, [])
 
-  useEffect(() => { loadAll() }, [])
-
-  async function loadAll() {
+  async function load() {
     setLoading(true)
     try {
-      const [ps, os, ev] = await Promise.all([
-        getPersonalStates().catch(() => []),
-        getOriStates().catch(() => []),
-        getEvents().catch(() => []),
-      ])
-      setPersonalSnaps(ps ?? [])
-      setOriSnaps(os ?? [])
-      setEvents(ev ?? [])
-
-      let pmf = null
-      try {
-        const segs = await getSegments()
-        const seg  = segs?.[0]
-        if (seg) {
-          const [problems, features, vp] = await Promise.all([
-            getRootProblems(seg.id).catch(() => []),
-            getConceptFeatures(seg.id).catch(() => []),
-            getValueProposition(seg.id).catch(() => null),
-          ])
-          pmf = { segment: seg, problems, features, valueProp: vp }
-        }
-      } catch { /* PMF tables not yet migrated */ }
-      setPmfData(pmf)
-
-      // Load blueprints (non-blocking)
-      getAllBlueprints().then(bps => setBlueprints(bps || [])).catch(() => {})
-
-      // Generate immediately
-      const personalSnap = ps?.[0] ?? null
-      const oriSnap      = os?.[0] ?? null
-      const r = generateFutureNarrative({ personalSnap, oriSnap, events: ev ?? [], pmfData: pmf })
-      setResult(r)
+      const data = await getQueue()
+      setItems(data || [])
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleRegenerate() {
-    setGenerating(true)
-    try {
-      const personalSnap = personalSnaps[0] ?? null
-      const oriSnap      = oriSnaps[0] ?? null
-      const r = generateFutureNarrative({ personalSnap, oriSnap, events, pmfData })
-      setResult(r)
-      setSavedIds(new Set())
+  const scheduledItems = useMemo(() => items.filter(i => i.scheduled_date), [items])
 
-      // Save to DB (non-blocking)
-      const allForecasts = [
-        ...(r.priorityRecs || []),
-        ...(r.futureForecasts || []),
-      ]
-      saveForecastBatch(allForecasts).catch(() => {})
+  // ── Navigation ──────────────────────────────────────────────────────────────
+
+  function navigatePrev() {
+    const d = new Date(currentDate)
+    if (view === 'month') d.setMonth(d.getMonth() - 1)
+    else if (view === 'week') d.setDate(d.getDate() - 7)
+    else d.setFullYear(d.getFullYear() - 1)
+    setCurrentDate(d)
+  }
+
+  function navigateNext() {
+    const d = new Date(currentDate)
+    if (view === 'month') d.setMonth(d.getMonth() + 1)
+    else if (view === 'week') d.setDate(d.getDate() + 7)
+    else d.setFullYear(d.getFullYear() + 1)
+    setCurrentDate(d)
+  }
+
+  function navigateToMonth(year, month) {
+    setCurrentDate(new Date(year, month, 1))
+    setView('month')
+  }
+
+  // ── Actions ─────────────────────────────────────────────────────────────────
+
+  async function handleMoveToDate(id, dateStr) {
+    setUpdatingId(id)
+    try {
+      const updated = await updateQueueItem(id, { scheduled_date: dateStr })
+      setItems(prev => prev.map(i => i.id === id ? updated : i))
     } finally {
-      setGenerating(false)
+      setUpdatingId(null)
     }
   }
 
-  async function handleSaveToQueue(forecast) {
-    const key = `${forecast.pillar}::${forecast.narrative_stack}`
-    setSavingKey(key)
+  async function handleUnschedule(id) {
+    setUpdatingId(id)
     try {
-      await saveToQueue({
-        platform:         forecast.source_state
-          ? (forecast.source_state.metric && ['authority', 'trust', 'momentum', 'authenticity'].includes(forecast.source_state.metric?.toLowerCase()) ? 'Personal' : 'Ori')
-          : 'Both',
-        visibility:       'Both',
-        priority:         forecast.is_priority ? 'High' : 'Medium',
-        primary_pillar:   forecast.pillar,
-        narrative_stack:  forecast.narrative_stack,
-        supporting_moments: [],
-        story_template:   null,
-        source_type:      'State',
-        source_events:    forecast.source_events || [],
-        source_pmf_assets: forecast.source_pmf_asset ? [forecast.source_pmf_asset] : [],
-        reason:           forecast.reason,
-      })
-      setSavedIds(prev => new Set([...prev, key]))
+      const updated = await updateQueueItem(id, { scheduled_date: null })
+      setItems(prev => prev.map(i => i.id === id ? updated : i))
     } finally {
-      setSavingKey(null)
+      setUpdatingId(null)
     }
   }
 
-  if (loading) return <LoadingState message="Loading Content Calendar…" />
-  if (!result)  return null
+  async function handleStatusChange(id, status) {
+    setUpdatingId(id)
+    try {
+      const updated = await updateQueueStatus(id, status)
+      setItems(prev => prev.map(i => i.id === id ? updated : i))
+    } finally {
+      setUpdatingId(null)
+    }
+  }
 
-  const { priorityRecs, futureForecasts, calendarSchedule, arc, allocation, generatedAt } = result
-  const lastGen = generatedAt ? new Date(generatedAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : null
+  async function handleSaveNotes(id, notes) {
+    const updated = await updateQueueItem(id, { notes })
+    setItems(prev => prev.map(i => i.id === id ? updated : i))
+  }
+
+  // ── Header label ────────────────────────────────────────────────────────────
+
+  function headerLabel() {
+    if (view === 'month') return `${MONTHS_LONG[currentDate.getMonth()]} ${currentDate.getFullYear()}`
+    if (view === 'week') {
+      const days = getWeekDates(currentDate)
+      const first = days[0].date
+      const last  = days[6].date
+      if (first.getMonth() === last.getMonth()) return `${MONTHS_LONG[first.getMonth()]} ${first.getFullYear()}`
+      return `${MONTHS_LONG[first.getMonth()]} – ${MONTHS_LONG[last.getMonth()]} ${last.getFullYear()}`
+    }
+    return String(currentDate.getFullYear())
+  }
+
+  if (loading) return <LoadingState message="Loading calendar…" />
 
   return (
-    <PageContainer className="max-w-5xl">
-      {/* Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h1 className="text-xl font-semibold text-[#1a1a2e] tracking-tight">Content Calendar</h1>
-          <p className="text-sm text-[#9ca3af] mt-0.5">
-            Adaptive Future Narrative Engine — forecasts based on state, events, and PMF intelligence.
-          </p>
-          {lastGen && <p className="text-[11px] text-[#c4b5c0] mt-1">Last generated {lastGen}</p>}
+    <div className={`min-h-full transition-all ${selectedDate ? 'mr-[400px]' : ''}`}>
+      <div className="max-w-6xl mx-auto px-6 py-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-xl font-semibold text-[#1a1a2e] tracking-tight">Content Calendar</h1>
+            <p className="text-sm text-[#9ca3af] mt-0.5">
+              Scheduling engine — content from your Queue.
+              {scheduledItems.length > 0 && ` ${scheduledItems.length} item${scheduledItems.length !== 1 ? 's' : ''} scheduled.`}
+            </p>
+          </div>
+          {/* View + Navigation */}
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              {['week', 'month', 'year'].map(v => (
+                <button key={v} onClick={() => setView(v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
+                    view === v ? 'bg-[#fce4ed] text-[#e879a0]' : 'text-[#6b7280] hover:bg-[#fdf2f6] hover:text-[#e879a0]'
+                  }`}>
+                  {v}
+                </button>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              <button onClick={navigatePrev} className="p-1.5 rounded-lg text-[#6b7280] hover:bg-[#fdf2f6] hover:text-[#e879a0] transition-colors">
+                <ChevronLeftIcon size={16} />
+              </button>
+              <button onClick={() => setCurrentDate(new Date())}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-[#6b7280] border border-[#f0e8ee] hover:bg-[#fdf2f6] hover:text-[#e879a0] transition-colors">
+                Today
+              </button>
+              <button onClick={navigateNext} className="p-1.5 rounded-lg text-[#6b7280] hover:bg-[#fdf2f6] hover:text-[#e879a0] transition-colors">
+                <ChevronRightIcon size={16} />
+              </button>
+            </div>
+            <p className="text-sm font-semibold text-[#1a1a2e] min-w-[180px] text-right">{headerLabel()}</p>
+          </div>
         </div>
-        <button
-          onClick={handleRegenerate}
-          disabled={generating}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium border border-[#f0e8ee] text-[#6b7280] hover:bg-[#fdf2f6] hover:text-[#e879a0] hover:border-[#fce4ed] transition-colors disabled:opacity-50"
-        >
-          <RefreshCwIcon size={14} className={generating ? 'animate-spin' : ''} />
-          {generating ? 'Regenerating…' : 'Regenerate'}
-        </button>
-      </div>
 
-      {/* Analytics */}
-      <AnalyticsBanner result={result} />
+        {/* Legend */}
+        <Legend />
 
-      {/* Allocation + Arc */}
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <AllocationSection allocation={allocation} />
-        <NarrativeArcDisplay arc={arc} />
-      </div>
-
-      {/* Priority Recommendations */}
-      {priorityRecs.length > 0 && (
-        <section className="mb-8">
-          <div className="flex items-center gap-2 mb-4">
-            <h2 className="text-base font-semibold text-[#1a1a2e]">Priority Recommendations</h2>
-            <span className="text-xs px-2 py-0.5 rounded-full bg-[#dcfce7] text-[#16a34a] font-medium">
-              Override future narrative
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {priorityRecs.map((rec, i) => {
-              const key = `${rec.pillar}::${rec.narrative_stack}`
-              const pillarBps = blueprints.filter(b => b.primary_pillar === rec.pillar)
-              const bp = pillarBps.find(b => b.narrative_stack === rec.narrative_stack) || pillarBps[0] || null
-              return (
-                <ForecastCard
-                  key={i}
-                  forecast={rec}
-                  isPriority={true}
-                  onSaveToQueue={handleSaveToQueue}
-                  saved={savedIds.has(key)}
-                  saving={savingKey === key}
-                  blueprint={bp}
-                />
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Future Narrative Forecasts */}
-      <section className="mb-8">
-        <div className="flex items-center gap-2 mb-4">
-          <h2 className="text-base font-semibold text-[#1a1a2e]">Future Narrative</h2>
-          <span className="text-xs px-2 py-0.5 rounded-full border border-[#fce4ed] text-[#e879a0]">
-            Forecasted content
-          </span>
-        </div>
-        {futureForecasts.length === 0 ? (
-          <div className="bg-white rounded-xl border border-[#f0e8ee] py-10 text-center">
-            <p className="text-sm text-[#c4b5c0]">No forecasts available. Add state reviews to generate a narrative.</p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3">
-            {futureForecasts.map((fc, i) => {
-              const key = `${fc.pillar}::${fc.narrative_stack}`
-              const pillarBps = blueprints.filter(b => b.primary_pillar === fc.pillar)
-              const bp = pillarBps.find(b => b.narrative_stack === fc.narrative_stack) || pillarBps[0] || null
-              return (
-                <ForecastCard
-                  key={i}
-                  forecast={fc}
-                  isPriority={false}
-                  onSaveToQueue={handleSaveToQueue}
-                  saved={savedIds.has(key)}
-                  saving={savingKey === key}
-                  blueprint={bp}
-                />
-              )
-            })}
+        {/* Empty state */}
+        {scheduledItems.length === 0 && (
+          <div className="bg-white rounded-xl border border-[#f0e8ee] py-12 text-center mb-4">
+            <CalendarIcon size={32} className="text-[#f0e8ee] mx-auto mb-3" />
+            <p className="text-sm text-[#9ca3af]">No content scheduled yet.</p>
+            <p className="text-xs text-[#c4b5c0] mt-1">Go to <strong>Queue</strong>, open an item, and set a schedule date.</p>
           </div>
         )}
-      </section>
 
-      {/* Calendar */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-[#1a1a2e]">Content Calendar</h2>
-          <div className="flex items-center gap-1">
-            {['month', 'quarter', 'year'].map(v => (
-              <button
-                key={v}
-                onClick={() => setCalView(v)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
-                  calView === v
-                    ? 'bg-[#fce4ed] text-[#e879a0]'
-                    : 'text-[#6b7280] hover:bg-[#fdf2f6] hover:text-[#e879a0]'
-                }`}
-              >
-                {v}
-              </button>
-            ))}
-          </div>
-        </div>
-        <CalendarView schedule={calendarSchedule} view={calView} />
-      </section>
-    </PageContainer>
+        {/* Calendar Views */}
+        {view === 'month' && (
+          <MonthView
+            year={currentDate.getFullYear()}
+            month={currentDate.getMonth()}
+            items={scheduledItems}
+            onSelectDate={setSelectedDate}
+            dragging={dragging}
+            setDragging={setDragging}
+            onMoveToDate={handleMoveToDate}
+          />
+        )}
+        {view === 'week' && (
+          <WeekView
+            anchorDate={currentDate}
+            items={scheduledItems}
+            onSelectDate={setSelectedDate}
+            onMoveToDate={handleMoveToDate}
+            setDragging={setDragging}
+          />
+        )}
+        {view === 'year' && (
+          <YearView
+            year={currentDate.getFullYear()}
+            items={scheduledItems}
+            onNavigateToMonth={navigateToMonth}
+          />
+        )}
+      </div>
+
+      {/* Date Detail Panel */}
+      {selectedDate && (
+        <DateDetailPanel
+          dateStr={selectedDate}
+          items={scheduledItems}
+          onClose={() => setSelectedDate(null)}
+          onStatusChange={handleStatusChange}
+          onUnschedule={handleUnschedule}
+          onSaveNotes={handleSaveNotes}
+          updatingId={updatingId}
+        />
+      )}
+    </div>
   )
 }

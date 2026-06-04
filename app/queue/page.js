@@ -276,9 +276,56 @@ function QueueTable({ items, onOpenPanel, onStatusChange, onDelete, updatingId }
   )
 }
 
+// ── Schedule Date Field (inside panel) ───────────────────────────────────────
+
+function ScheduleDateField({ item, onUpdate }) {
+  const [date,    setDate]    = useState(item?.scheduled_date || '')
+  const [saving,  setSaving]  = useState(false)
+  const [changed, setChanged] = useState(false)
+
+  useEffect(() => { setDate(item?.scheduled_date || ''); setChanged(false) }, [item?.id])
+
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await onUpdate(item.id, { scheduled_date: date || null })
+      setChanged(false)
+    } finally { setSaving(false) }
+  }
+
+  return (
+    <div>
+      <p className="text-[11px] font-semibold text-[#9ca3af] uppercase tracking-wide mb-1.5">Schedule Date</p>
+      <div className="flex items-center gap-2">
+        <input
+          type="date"
+          value={date}
+          onChange={e => { setDate(e.target.value); setChanged(true) }}
+          className="border border-[#f0e8ee] rounded-lg px-3 py-1.5 text-sm text-[#1a1a2e] bg-[#fdf9fb] focus:outline-none focus:ring-2 focus:ring-[#f9a8c3]"
+        />
+        {changed && (
+          <button onClick={handleSave} disabled={saving}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[#e879a0] text-white hover:bg-[#d4659a] transition-colors disabled:opacity-50">
+            {saving ? 'Saving…' : 'Set'}
+          </button>
+        )}
+        {item.scheduled_date && !changed && (
+          <button onClick={() => { setDate(''); setChanged(true) }}
+            className="text-xs text-[#9ca3af] hover:text-red-500 transition-colors">
+            Unschedule
+          </button>
+        )}
+      </div>
+      {item.scheduled_date && !changed && (
+        <p className="text-[11px] text-[#16a34a] mt-1">Appears in Content Calendar</p>
+      )}
+    </div>
+  )
+}
+
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 
-function DetailPanel({ item, onClose, onStatusChange, onSaveNotes, onDelete, onArchive, onRestore, updatingId }) {
+function DetailPanel({ item, onClose, onStatusChange, onSaveNotes, onUpdate, onDelete, onArchive, onRestore, updatingId }) {
   const [notesDraft, setNotesDraft] = useState(item?.notes || '')
   const [notesChanged, setNotesChanged] = useState(false)
   const [savingNotes, setSavingNotes] = useState(false)
@@ -358,6 +405,9 @@ function DetailPanel({ item, onClose, onStatusChange, onSaveNotes, onDelete, onA
               })}
             </div>
           </div>
+
+          {/* Schedule Date */}
+          <ScheduleDateField item={item} onUpdate={onUpdate} />
 
           {/* Supporting Moments */}
           <div>
@@ -544,6 +594,7 @@ function DetailPanel({ item, onClose, onStatusChange, onSaveNotes, onDelete, onA
 const EMPTY_FORM = {
   title: '', platform: 'Personal', primary_pillar: '', narrative_stack: '',
   supporting_moments: '', story_template_name: '', priority: 'Medium', notes: '',
+  scheduled_date: '',
 }
 
 function AddItemModal({ open, onClose, onSave }) {
@@ -616,6 +667,9 @@ function AddItemModal({ open, onClose, onSave }) {
               <option value="">— None —</option>
               {ALL_TEMPLATES.map(t => <option key={t.name} value={t.name}>{t.name}: {t.steps.join(' → ')}</option>)}
             </select>
+          </Field>
+          <Field label="Schedule Date (optional)">
+            <input type="date" className={inputCls} value={form.scheduled_date} onChange={e => setForm({ ...form, scheduled_date: e.target.value })} />
           </Field>
           <Field label="Notes">
             <textarea className={textareaCls} rows={3} value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Ideas, recording notes, reminders…" />
@@ -700,6 +754,12 @@ export default function QueuePage() {
 
   async function handleSaveNotes(id, notes) {
     const updated = await updateQueueItem(id, { notes })
+    setItems(prev => prev.map(i => i.id === id ? updated : i))
+    if (panelItem?.id === id) setPanelItem(updated)
+  }
+
+  async function handleUpdate(id, values) {
+    const updated = await updateQueueItem(id, values)
     setItems(prev => prev.map(i => i.id === id ? updated : i))
     if (panelItem?.id === id) setPanelItem(updated)
   }
@@ -797,6 +857,7 @@ export default function QueuePage() {
           onClose={() => setPanelItem(null)}
           onStatusChange={handleStatusChange}
           onSaveNotes={handleSaveNotes}
+          onUpdate={handleUpdate}
           onDelete={handleDelete}
           onArchive={handleArchive}
           onRestore={handleRestore}

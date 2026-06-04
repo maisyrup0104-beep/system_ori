@@ -54,6 +54,7 @@ export async function createQueueItem(values) {
       source_pmf_assets:        [],
       source_concept_features:  [],
       notes:                    values.notes || null,
+      scheduled_date:           values.scheduled_date || null,
       status:                   'Queued',
     })
     .select()
