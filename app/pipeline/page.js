@@ -75,7 +75,7 @@ const paymentColors = {
 function RevenueTab({ clients, settings, onAddClient, onEditClient, onDeleteClient }) {
   const goal    = settings?.revenue_goal    ?? 0
   const daysLeft = settings?.days_remaining ?? 0
-  const current = clients.filter(c => c.client_type === 'Paid Client').reduce((s, c) => s + (Number(c.actual_revenue) || 0), 0)
+  const current = clients.filter(c => c.client_type === 'Paid Client' || c.client_type === 'Paid').reduce((s, c) => s + (Number(c.actual_revenue) || 0), 0)
 
   return (
     <div>
@@ -223,29 +223,40 @@ function ConvertToClientModal({ lead, onConvert, onCancel }) {
         {lead.segment && <p className="text-xs text-[#9ca3af] mb-4">{lead.segment}</p>}
 
         <p className="text-sm text-[#6b7280] mb-4">
-          Lead moved to Closed. Create a client record to start production tracking?
+          Lead moved to Closed. Create a client workspace to start delivery tracking?
         </p>
 
         <div className="space-y-2 mb-5">
           <button
-            onClick={() => onConvert('Paid Client')}
+            onClick={() => onConvert('Paid')}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[#bbf7d0] bg-[#f0fdf4] hover:bg-[#dcfce7] transition-colors text-left"
           >
             <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-[#16a34a]" />
             <div>
-              <p className="text-sm font-semibold text-[#16a34a]">Paid Client</p>
-              <p className="text-xs text-[#9ca3af]">Actual revenue tracked · Payment status: Unpaid</p>
+              <p className="text-sm font-semibold text-[#16a34a]">Paid</p>
+              <p className="text-xs text-[#9ca3af]">Revenue tracked · Payment status: Unpaid · Workspace created</p>
             </div>
           </button>
 
           <button
-            onClick={() => onConvert('Free Sample')}
+            onClick={() => onConvert('Free')}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[#fde68a] bg-[#fefce8] hover:bg-[#fef3c7] transition-colors text-left"
           >
             <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-[#d97706]" />
             <div>
-              <p className="text-sm font-semibold text-[#d97706]">Free Sample</p>
-              <p className="text-xs text-[#9ca3af]">Actual revenue = ₱0 · Payment status: Free</p>
+              <p className="text-sm font-semibold text-[#d97706]">Free</p>
+              <p className="text-xs text-[#9ca3af]">No revenue tracking · Testimonial + case study enabled</p>
+            </div>
+          </button>
+
+          <button
+            onClick={() => onConvert('Demo')}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-[#bae6fd] bg-[#f0f9ff] hover:bg-[#e0f2fe] transition-colors text-left"
+          >
+            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0 bg-[#0369a1]" />
+            <div>
+              <p className="text-sm font-semibold text-[#0369a1]">Demo</p>
+              <p className="text-xs text-[#9ca3af]">No revenue tracking · Showcase and proof collection</p>
             </div>
           </button>
         </div>
@@ -328,7 +339,7 @@ export default function PipelinePage() {
       segment:        lead.segment || '',
       client_type:    clientType,
       client_status:  'Active',
-      payment_status: clientType === 'Free Sample' ? 'Free' : 'Unpaid',
+      payment_status: clientType === 'Paid' ? 'Unpaid' : 'Free',
       actual_revenue: 0,
       notes:          lead.notes || '',
     })

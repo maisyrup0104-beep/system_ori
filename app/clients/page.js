@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import PageContainer from '@/components/shared/PageContainer'
 import LoadingState from '@/components/shared/LoadingState'
 import ClientCard from '@/components/clients/ClientCard'
@@ -13,14 +14,16 @@ import { createClientActivity } from '@/services/clientActivities'
 import { formatPHP } from '@/lib/currency'
 import { PlusIcon } from 'lucide-react'
 
+function isPaid(c) { return c.client_type === 'Paid Client' || c.client_type === 'Paid' }
+
 // ── Metrics row ───────────────────────────────────────────────────────────────
 function ClientMetrics({ clients }) {
-  const active     = clients.filter((c) => !['Completed'].includes(c.client_status) && c.client_type === 'Paid Client').length
+  const active     = clients.filter((c) => !['Completed'].includes(c.client_status) && isPaid(c)).length
   const inProd     = clients.filter((c) => c.client_status === 'In Production').length
   const waiting    = clients.filter((c) => c.client_status === 'Waiting Assets').length
   const delivered  = clients.filter((c) => ['Delivered', 'Completed'].includes(c.client_status)).length
   const testimonials = clients.filter((c) => c.client_status === 'Delivered' && c.testimonial_status === 'Not Requested').length
-  const freeCount  = clients.filter((c) => c.client_type !== 'Paid Client').length
+  const freeCount  = clients.filter((c) => !isPaid(c)).length
 
   const stats = [
     { label: 'Active Clients',     value: active,      accent: false },
@@ -71,8 +74,8 @@ export default function ClientsPage() {
 
   const visible = useMemo(() => {
     switch (tab) {
-      case 'active':    return clients.filter((c) => !['Completed'].includes(c.client_status) && c.client_type === 'Paid Client')
-      case 'free':      return clients.filter((c) => c.client_type !== 'Paid Client')
+      case 'active':    return clients.filter((c) => !['Completed'].includes(c.client_status) && isPaid(c))
+      case 'free':      return clients.filter((c) => !isPaid(c))
       case 'completed': return clients.filter((c) => c.client_status === 'Completed')
       default:          return clients
     }
@@ -142,7 +145,7 @@ export default function ClientsPage() {
           <div>
             <h1 className="text-xl font-semibold text-[#1a1a2e] tracking-tight">Clients</h1>
             <p className="text-sm text-[#9ca3af] mt-0.5">
-              {clients.length} client{clients.length !== 1 ? 's' : ''} · {formatPHP(clients.filter(c => c.client_type === 'Paid Client').reduce((s, c) => s + (Number(c.actual_revenue) || 0), 0))} actual revenue
+              {clients.length} client{clients.length !== 1 ? 's' : ''} · {formatPHP(clients.filter(isPaid).reduce((s, c) => s + (Number(c.actual_revenue) || 0), 0))} actual revenue
             </p>
           </div>
           <Button onClick={() => setModal({ open: true, mode: 'add', client: null })} className="bg-[#e879a0] hover:bg-[#d4648a] text-white gap-1.5">
@@ -165,8 +168,8 @@ export default function ClientsPage() {
               {t.id !== 'all' && (
                 <span className="ml-1.5 text-[10px]">
                   ({tab === t.id ? visible.length : (
-                    t.id === 'active'    ? clients.filter((c) => !['Completed'].includes(c.client_status) && c.client_type === 'Paid Client').length :
-                    t.id === 'free'      ? clients.filter((c) => c.client_type !== 'Paid Client').length :
+                    t.id === 'active'    ? clients.filter((c) => !['Completed'].includes(c.client_status) && isPaid(c)).length :
+                    t.id === 'free'      ? clients.filter((c) => !isPaid(c)).length :
                     t.id === 'completed' ? clients.filter((c) => c.client_status === 'Completed').length : 0
                   )})
                 </span>
@@ -184,7 +187,15 @@ export default function ClientsPage() {
         ) : (
           <div className="grid grid-cols-3 gap-4">
             {visible.map((client) => (
-              <ClientCard key={client.id} client={client} onClick={() => openProfile(client)} />
+              <div key={client.id} className="flex flex-col gap-1.5">
+                <ClientCard client={client} onClick={() => openProfile(client)} />
+                <Link
+                  href={`/clients/${client.id}`}
+                  className="text-center text-xs text-[#e879a0] hover:text-[#d4648a] font-medium py-1 transition-colors"
+                >
+                  Open Workspace →
+                </Link>
+              </div>
             ))}
           </div>
         )}
