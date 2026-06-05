@@ -6,18 +6,19 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { XIcon } from 'lucide-react'
-import { SEGMENTS, STAGES } from '@/lib/pipelineConfig'
+import { SEGMENTS, ACTIVE_STAGES, SOURCES } from '@/lib/pipelineConfig'
 
 const EMPTY = {
-  business_name: '',
-  segment: '',
-  stage: 'Prospect',
-  contact_name: '',
-  facebook_link: '',
+  business_name:  '',
+  segment:        '',
+  stage:          'Lead',
+  contact_name:   '',
+  source:         '',
+  facebook_link:  '',
   instagram_link: '',
-  website: '',
-  phone: '',
-  notes: '',
+  website:        '',
+  phone:          '',
+  notes:          '',
 }
 
 const inp = 'border-[#f0e8ee] focus:ring-[#f9a8c3]'
@@ -32,22 +33,21 @@ export default function LeadForm({ open, mode, lead, onSave, onClose }) {
     if (open) {
       setError('')
       setForm(mode === 'edit' && lead ? {
-        business_name: lead.business_name || '',
-        segment:       lead.segment || '',
-        stage:         lead.stage || 'Prospect',
-        contact_name:  lead.contact_name || '',
-        facebook_link: lead.facebook_link || '',
-        instagram_link:lead.instagram_link || '',
-        website:       lead.website || '',
-        phone:         lead.phone || '',
-        notes:         lead.notes || '',
+        business_name:  lead.business_name  || '',
+        segment:        lead.segment        || '',
+        stage:          lead.stage          || 'Lead',
+        contact_name:   lead.contact_name   || '',
+        source:         lead.source         || '',
+        facebook_link:  lead.facebook_link  || '',
+        instagram_link: lead.instagram_link || '',
+        website:        lead.website        || '',
+        phone:          lead.phone          || '',
+        notes:          lead.notes          || '',
       } : EMPTY)
     }
   }, [open, mode, lead])
 
-  function set(key, value) {
-    setForm((prev) => ({ ...prev, [key]: value }))
-  }
+  function set(key, value) { setForm((p) => ({ ...p, [key]: value })) }
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -69,13 +69,14 @@ export default function LeadForm({ open, mode, lead, onSave, onClose }) {
       <div className="absolute inset-0 bg-black/20 backdrop-blur-[2px]" onClick={onClose} />
 
       <div className="relative bg-white rounded-2xl shadow-2xl border border-[#f0e8ee] w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-[#f0e8ee]">
           <div>
             <h2 className="text-base font-semibold text-[#1a1a2e]">
               {mode === 'edit' ? 'Edit Lead' : 'Add Lead'}
             </h2>
-            <p className="text-xs text-[#9ca3af] mt-0.5">Add a new prospect to the pipeline.</p>
+            <p className="text-xs text-[#9ca3af] mt-0.5">
+              {mode === 'edit' ? 'Update lead information.' : 'Add a new prospect to the pipeline.'}
+            </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-[#f1f5f9] text-[#9ca3af] transition-colors">
             <XIcon size={16} />
@@ -94,33 +95,42 @@ export default function LeadForm({ open, mode, lead, onSave, onClose }) {
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-[#4b5563]">Segment <span className="text-[#e879a0]">*</span></Label>
               <select value={form.segment} onChange={(e) => set('segment', e.target.value)} className={sel}>
-                <option value="">Select...</option>
+                <option value="">Select…</option>
                 {SEGMENTS.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-medium text-[#4b5563]">Stage</Label>
+              <Label className="text-xs font-medium text-[#4b5563]">Status</Label>
               <select value={form.stage} onChange={(e) => set('stage', e.target.value)} className={sel}>
-                {STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                {ACTIVE_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
 
-          {/* Contact name */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium text-[#4b5563]">Contact Name</Label>
-            <Input value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)} placeholder="Owner / Manager name" className={inp} />
+          {/* Contact + Source */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-[#4b5563]">Contact Name</Label>
+              <Input value={form.contact_name} onChange={(e) => set('contact_name', e.target.value)} placeholder="Owner / Manager" className={inp} />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-[#4b5563]">Source</Label>
+              <select value={form.source} onChange={(e) => set('source', e.target.value)} className={sel}>
+                <option value="">Select…</option>
+                {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
           </div>
 
           {/* Social links */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-[#4b5563]">Facebook</Label>
-              <Input value={form.facebook_link} onChange={(e) => set('facebook_link', e.target.value)} placeholder="facebook.com/..." className={inp} />
+              <Input value={form.facebook_link} onChange={(e) => set('facebook_link', e.target.value)} placeholder="facebook.com/…" className={inp} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-[#4b5563]">Instagram</Label>
-              <Input value={form.instagram_link} onChange={(e) => set('instagram_link', e.target.value)} placeholder="instagram.com/..." className={inp} />
+              <Input value={form.instagram_link} onChange={(e) => set('instagram_link', e.target.value)} placeholder="instagram.com/…" className={inp} />
             </div>
           </div>
 
@@ -128,18 +138,18 @@ export default function LeadForm({ open, mode, lead, onSave, onClose }) {
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-[#4b5563]">Website</Label>
-              <Input value={form.website} onChange={(e) => set('website', e.target.value)} placeholder="https://..." className={inp} />
+              <Input value={form.website} onChange={(e) => set('website', e.target.value)} placeholder="https://…" className={inp} />
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-medium text-[#4b5563]">Phone</Label>
-              <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+63..." className={inp} />
+              <Input value={form.phone} onChange={(e) => set('phone', e.target.value)} placeholder="+63…" className={inp} />
             </div>
           </div>
 
           {/* Notes */}
           <div className="space-y-1.5">
             <Label className="text-xs font-medium text-[#4b5563]">Notes</Label>
-            <Textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Initial context, observations..." rows={3} className={`${inp} resize-none text-sm`} />
+            <Textarea value={form.notes} onChange={(e) => set('notes', e.target.value)} placeholder="Initial context, observations…" rows={3} className={`${inp} resize-none text-sm`} />
           </div>
 
           {error && <p className="text-xs text-red-500">{error}</p>}
@@ -149,7 +159,7 @@ export default function LeadForm({ open, mode, lead, onSave, onClose }) {
               Cancel
             </button>
             <Button type="submit" disabled={saving} className="bg-[#e879a0] hover:bg-[#d4648a] text-white">
-              {saving ? 'Saving...' : mode === 'edit' ? 'Save Changes' : 'Add Lead'}
+              {saving ? 'Saving…' : mode === 'edit' ? 'Save Changes' : 'Add Lead'}
             </Button>
           </div>
         </form>
