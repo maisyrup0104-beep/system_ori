@@ -334,10 +334,12 @@ function buildCopyText(item) {
   if (steps.length > 0) {
     lines.push(`Whole-Day Story:\n${steps.map((s, i) => i === 0 ? s : `→ ${s}`).join('\n')}`)
   }
-  if (item.blueprint_life_moments?.length > 0)       lines.push(`Life Moments:\n${item.blueprint_life_moments.join('\n')}`)
-  if (item.blueprint_work_moments?.length > 0)       lines.push(`Work Moments:\n${item.blueprint_work_moments.join('\n')}`)
-  if (item.blueprint_reflection_moments?.length > 0) lines.push(`Reflection:\n${item.blueprint_reflection_moments.join('\n')}`)
-  if (item.reason) lines.push(`Reason:\n${item.reason}`)
+  const beats = [
+    ...(item.blueprint_life_moments || []),
+    ...(item.blueprint_work_moments || []),
+    ...(item.blueprint_reflection_moments || []),
+  ]
+  if (beats.length > 0) lines.push(`Story Beats:\n${beats.join('\n')}`)
   return lines.join('\n\n')
 }
 
