@@ -8,7 +8,7 @@ import {
   updateQueueStatus, deleteFromQueue,
 } from '@/services/contentOpportunities'
 import { PILLARS, NARRATIVE_STACKS, STORY_TEMPLATES } from '@/lib/opportunityEngine'
-import { PlusIcon, PencilIcon, TrashIcon, XIcon, ChevronRightIcon, ArchiveIcon, RotateCcwIcon } from 'lucide-react'
+import { PlusIcon, PencilIcon, TrashIcon, XIcon, ChevronRightIcon, ArchiveIcon, RotateCcwIcon, CopyIcon, CheckIcon } from 'lucide-react'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -325,10 +325,33 @@ function ScheduleDateField({ item, onUpdate }) {
 
 // ── Detail Panel ──────────────────────────────────────────────────────────────
 
+function buildCopyText(item) {
+  const lines = []
+  if (item.primary_pillar)  lines.push(`Pillar:\n${item.primary_pillar}`)
+  if (item.narrative_stack) lines.push(`Narrative:\n${item.narrative_stack}`)
+  if (item.blueprint_name)  lines.push(`Blueprint:\n${item.blueprint_name}`)
+  const steps = item.story_template_steps || []
+  if (steps.length > 0) {
+    lines.push(`Whole-Day Story:\n${steps.map((s, i) => i === 0 ? s : `→ ${s}`).join('\n')}`)
+  }
+  if (item.blueprint_life_moments?.length > 0)       lines.push(`Life Moments:\n${item.blueprint_life_moments.join('\n')}`)
+  if (item.blueprint_work_moments?.length > 0)       lines.push(`Work Moments:\n${item.blueprint_work_moments.join('\n')}`)
+  if (item.blueprint_reflection_moments?.length > 0) lines.push(`Reflection:\n${item.blueprint_reflection_moments.join('\n')}`)
+  if (item.reason) lines.push(`Reason:\n${item.reason}`)
+  return lines.join('\n\n')
+}
+
 function DetailPanel({ item, onClose, onStatusChange, onSaveNotes, onUpdate, onDelete, onArchive, onRestore, updatingId }) {
   const [notesDraft, setNotesDraft] = useState(item?.notes || '')
   const [notesChanged, setNotesChanged] = useState(false)
   const [savingNotes, setSavingNotes] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  function handleCopy() {
+    navigator.clipboard.writeText(buildCopyText(item))
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
 
   // Reset notes when item changes
   useEffect(() => {
@@ -366,9 +389,18 @@ function DetailPanel({ item, onClose, onStatusChange, onSaveNotes, onUpdate, onD
             <p className="text-base font-semibold text-[#1a1a2e] leading-tight">{item.primary_pillar}</p>
             <p className="text-sm text-[#e879a0] mt-0.5">{item.narrative_stack}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-[#9ca3af] hover:text-[#1a1a2e] hover:bg-[#fdf2f6] transition-colors shrink-0">
-            <XIcon size={16} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              onClick={handleCopy}
+              title="Copy card contents"
+              className="p-1.5 rounded-lg text-[#9ca3af] hover:text-[#e879a0] hover:bg-[#fdf2f6] transition-colors"
+            >
+              {copied ? <CheckIcon size={16} className="text-[#16a34a]" /> : <CopyIcon size={16} />}
+            </button>
+            <button onClick={onClose} className="p-1.5 rounded-lg text-[#9ca3af] hover:text-[#1a1a2e] hover:bg-[#fdf2f6] transition-colors">
+              <XIcon size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Scrollable body */}
